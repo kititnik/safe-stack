@@ -14,23 +14,31 @@ const char* EMPTY_STACK_POP_ERROR = "Error: Attempt to pop from empty stack";
 const char* EMPTY_STACK_TOP_ERROR = "Error: Attempt to top from empty stack";
 
 struct Stack {
+    uint64_t canary_begin;
+
     size_t capacity;
     size_t size;
     type* data;
 
+    uint64_t canary;
     uint64_t hash;
     uint64_t base;
     uint64_t inv_base;
+
+    uint64_t canary_end;
 };
 
 uint64_t generate_base() {
-    uint64_t base = ((uint64_t)rand() << 33) ^ ((uint64_t)rand() << 1) ^ 1ULL;
+    uint64_t base = 0;
+    do {
+        base = ((uint64_t)rand() << 33) ^ ((uint64_t)rand() << 1) ^ 1ULL;
+    } while(base < 1024);
     return base;
 }
 
 uint64_t compute_inv_base(uint64_t base) {
     uint64_t inv_base = 1;
-    for(int i = 0; i < 6; i++) {
+    for(size_t i = 0; i < 6; i++) {
         inv_base *= 2-base*inv_base;
     }
     return inv_base;
@@ -44,17 +52,38 @@ void pop_update_hash(Stack* stack, type value) {
     stack->hash = (stack->hash - (uint64_t)value) * stack->inv_base;
 }
 
-int check_integrity(Stack* stack, int* out) {
+int check_canaries(Stack* stack, int* out) {
+    if(stack == NULL) {
+        fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
+        return EXIT_FAILURE;
+    }
+    if(stack->canary_begin != stack->canary) {
+        *out = 0;
+        return EXIT_SUCCESS;
+    }
+    if(stack->canary_end != stack->canary) {
+        *out = 0;
+        return EXIT_SUCCESS;
+    }
+    if(stack->data[stack->capacity] != (type)stack->canary) {
+        *out = 0;
+        return EXIT_SUCCESS;
+    }
+    *out = 1;
+    return EXIT_SUCCESS;
+}
+
+int check_hash(Stack* stack, int* out) {
     if(stack == NULL) {
         fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
         return EXIT_FAILURE;
     }
     uint64_t hash = 0;
-    for(int i = 0; i < stack->size; i++) {
+    for(size_t i = 0; i < stack->size; i++) {
         hash = hash * stack->base + (uint64_t)stack->data[i];
     }
     *out = (hash == stack->hash);
-    return EXIT_FAILURE;
+    return EXIT_SUCCESS;
 }
 
 Stack* init(size_t start_capacity) {
@@ -68,14 +97,20 @@ Stack* init(size_t start_capacity) {
         return NULL;
     }
     stack->capacity = start_capacity;
-    stack->data = calloc(start_capacity, sizeof(type));
+    stack->data = calloc(start_capacity+1, sizeof(type));
     if(stack->data == NULL) {
         fprintf(stderr, "%s", STACK_ALLOCATION_ERROR);
+        free(stack);
         return NULL;
     }
     stack->size = 0;
+    stack->hash = 0;
     stack->base = generate_base();
     stack->inv_base = compute_inv_base(stack->base);
+    arc4random_buf(&stack->canary, sizeof(stack->canary_begin));
+    stack->canary_begin = stack->canary;
+    stack->canary_end = stack->canary;
+    stack->data[start_capacity] = (type)stack->canary;
     return stack;
 }
 
@@ -86,13 +121,14 @@ int resize(Stack* stack) {
     }
     size_t past_capacity = stack->capacity;
     size_t new_capacity = past_capacity*2;
-    void* ptr = realloc(stack->data, new_capacity);
+    void* ptr = realloc(stack->data, (new_capacity+1)*sizeof(type));
     if(ptr == NULL) {
         fprintf(stderr, RESIZE_ERROR, past_capacity, new_capacity);
         return EXIT_FAILURE;
     }
     stack->data = ptr;
     stack->capacity = new_capacity;
+    stack->data[new_capacity] = stack->canary;
     return EXIT_SUCCESS;
 }
 
