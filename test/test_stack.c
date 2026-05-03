@@ -75,7 +75,8 @@ void test_empty_pop() {
 
 void test_empty() {
     Stack* s = init(42);
-    int res = empty(s);
+    int out = 0;
+    int res = empty(s, &out);
     TEST_ASSERT_EQUAL_INT(1, res);
     clear(s);
 }

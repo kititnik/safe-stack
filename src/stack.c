@@ -1,15 +1,20 @@
 #include "stack.h"
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stddef.h>
 #include <stdlib.h>
 
+const double RESIZE_ON_PUSH_MULTIPLIER = 2;
+const double RESIZE_ON_POP_MULTIPLIER = 0.5;
+
 const char* NULL_STACK_POINTER_ERROR = "Pointer to stack is null";
 const char* VALUE_POINTER_NULL_ERROR = "Pointer to argumet value is null";
 const char* STACK_ALLOCATION_ERROR = "Failed to allocate stack memory";
+const char* INCORRECT_START_CAPACITY_ERROR = "Incorrect stack start size!";
+
 const char* RESIZE_ERROR = "An error occured while stack resize.\n Last capacity = %zu.\n Capacity resize attempt = %zu";
 const char* PUSH_STACK_OVERFLOW_ERROR = "Stack overflow while push attempt";
-const char* INCORRECT_START_CAPACITY_ERROR = "Incorrect stack start size!";
 const char* EMPTY_STACK_POP_ERROR = "Error: Attempt to pop from empty stack";
 const char* EMPTY_STACK_TOP_ERROR = "Error: Attempt to top from empty stack";
 
@@ -20,6 +25,8 @@ struct Stack {
     size_t size;
     type* data;
 
+    uint32_t error;
+
     uint64_t canary;
     uint64_t hash;
     uint64_t base;
@@ -27,6 +34,15 @@ struct Stack {
 
     uint64_t canary_end;
 };
+
+StackStatus stack_get_error(Stack* stack, uint32_t* error) {
+    if(stack == NULL) {
+        fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
+        return STACK_NULL_POINTER_ERR;
+    }
+    *error = stack->error;
+    return STACK_SUCCESS;
+}
 
 uint64_t generate_base() {
     uint64_t base = 0;
@@ -52,38 +68,38 @@ void pop_update_hash(Stack* stack, type value) {
     stack->hash = (stack->hash - (uint64_t)value) * stack->inv_base;
 }
 
-int check_canaries(Stack* stack, int* out) {
+StackStatus check_canaries(Stack* stack, int* out) {
     if(stack == NULL) {
         fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
-        return EXIT_FAILURE;
+        return STACK_NULL_POINTER_ERR;
     }
     if(stack->canary_begin != stack->canary) {
         *out = 0;
-        return EXIT_SUCCESS;
+        return STACK_SUCCESS;
     }
     if(stack->canary_end != stack->canary) {
         *out = 0;
-        return EXIT_SUCCESS;
+        return STACK_SUCCESS;
     }
     if(stack->data[stack->capacity] != (type)stack->canary) {
         *out = 0;
-        return EXIT_SUCCESS;
+        return STACK_SUCCESS;
     }
     *out = 1;
-    return EXIT_SUCCESS;
+    return STACK_SUCCESS;
 }
 
-int check_hash(Stack* stack, int* out) {
+StackStatus check_hash(Stack* stack, int* out) {
     if(stack == NULL) {
         fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
-        return EXIT_FAILURE;
+        return STACK_NULL_POINTER_ERR;
     }
     uint64_t hash = 0;
     for(size_t i = 0; i < stack->size; i++) {
         hash = hash * stack->base + (uint64_t)stack->data[i];
     }
     *out = (hash == stack->hash);
-    return EXIT_SUCCESS;
+    return STACK_SUCCESS;
 }
 
 Stack* init(size_t start_capacity) {
@@ -91,7 +107,7 @@ Stack* init(size_t start_capacity) {
         fprintf(stderr, "%s", INCORRECT_START_CAPACITY_ERROR);
         return NULL;
     }
-    Stack* stack = malloc(sizeof(Stack));
+    Stack* stack = calloc(1, sizeof(Stack));
     if(stack == NULL) {
         fprintf(stderr, "%s", STACK_ALLOCATION_ERROR);
         return NULL;
@@ -104,6 +120,7 @@ Stack* init(size_t start_capacity) {
         return NULL;
     }
     stack->size = 0;
+    stack->error = 0;
     stack->hash = 0;
     stack->base = generate_base();
     stack->inv_base = compute_inv_base(stack->base);
@@ -114,101 +131,125 @@ Stack* init(size_t start_capacity) {
     return stack;
 }
 
-int resize(Stack* stack) {
+StackStatus resize(Stack* stack, double multiplier) {
     if(stack == NULL) {
         fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
-        return EXIT_FAILURE;
+        return STACK_NULL_POINTER_ERR;
     }
     size_t past_capacity = stack->capacity;
-    size_t new_capacity = past_capacity*2;
+    size_t new_capacity = ceil(past_capacity*multiplier);
     void* ptr = realloc(stack->data, (new_capacity+1)*sizeof(type));
     if(ptr == NULL) {
         fprintf(stderr, RESIZE_ERROR, past_capacity, new_capacity);
-        return EXIT_FAILURE;
+        stack->error |= STACK_RESIZE_ERR;
+        return STACK_FAILURE;
     }
     stack->data = ptr;
     stack->capacity = new_capacity;
     stack->data[new_capacity] = stack->canary;
-    return EXIT_SUCCESS;
+    return STACK_SUCCESS;
 }
 
-int push(Stack* stack, type value) {
+StackStatus push(Stack* stack, type value) {
     if(stack == NULL) {
         fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
-        return EXIT_FAILURE;
+        return STACK_NULL_POINTER_ERR;
     }
     if(stack->size == stack->capacity) {
-        int code = resize(stack);
-        if(code == EXIT_FAILURE) {
+        int code = resize(stack, RESIZE_ON_PUSH_MULTIPLIER);
+        if(code != STACK_SUCCESS) {
             fprintf(stderr, "%s", PUSH_STACK_OVERFLOW_ERROR);
-            return EXIT_FAILURE;
+            stack->error |= STACK_OVERFLOW_ERR;
+            return STACK_FAILURE;
         }
     }
     stack->data[stack->size] = value;
     push_update_hash(stack, value);
     stack->size++;
-    return EXIT_SUCCESS;
+    return STACK_SUCCESS;
 }
 
-int pop(Stack* stack) {
+StackStatus pop(Stack* stack) {
     if(stack == NULL) {
         fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
-        return EXIT_FAILURE;
+        return STACK_NULL_POINTER_ERR;
     }
-    if(empty(stack)) {
+    int out = 0;
+    StackStatus res = empty(stack, &out);
+    if(res != STACK_SUCCESS) {
+        fprintf(stderr, "%s", "Error in pop()");
+        return STACK_FAILURE;
+    }
+    if(out) {
         fprintf(stderr, "%s", EMPTY_STACK_POP_ERROR);
-        return EXIT_FAILURE;
+        stack->error |= STACK_EMPTY_ERR;
+        return STACK_FAILURE;
     }
     type value = stack->data[stack->size-1];
     pop_update_hash(stack, value);
     stack->size--;
-    
-    return EXIT_SUCCESS;
+    if(stack->size < stack->capacity/4) {
+        StackStatus result = resize(stack, RESIZE_ON_POP_MULTIPLIER);
+        if(result != STACK_SUCCESS) {
+            fprintf(stderr, "%s", "Error in pop()");
+            return STACK_FAILURE;
+        }
+    }
+    return STACK_SUCCESS;
 }
 
-int top(Stack* stack, type* value) {
+StackStatus top(Stack* stack, type* value) {
     if(stack == NULL) {
         fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
-        return EXIT_FAILURE;
+        return STACK_NULL_POINTER_ERR;
     }
     if(value == NULL) {
         fprintf(stderr, "%s", VALUE_POINTER_NULL_ERROR);
-        return EXIT_FAILURE;
+        return STACK_ARG_NULL_POINTER_ERR;
     }
-    if(empty(stack)) {
+    int out = 0;
+    StackStatus result = empty(stack, &out);
+    if(result != STACK_SUCCESS) {
+        fprintf(stderr, "%s", "Error in top()");
+        return STACK_FAILURE;
+    }
+    if(out) {
         fprintf(stderr, "%s", EMPTY_STACK_TOP_ERROR);
-        return EXIT_FAILURE;
+        stack->error |= STACK_EMPTY_ERR;
+        return STACK_FAILURE;
     }
     *value = stack->data[stack->size-1];
-    return EXIT_SUCCESS;
+    return STACK_SUCCESS;
 }
 
-int size(Stack* stack, size_t* size) {
+StackStatus size(Stack* stack, size_t* size) {
     if(stack == NULL) {
         fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
-        return EXIT_FAILURE;
+        return STACK_NULL_POINTER_ERR;
     }
     if(size == NULL) {
         fprintf(stderr, "%s", VALUE_POINTER_NULL_ERROR);
-        return EXIT_FAILURE;
+        return STACK_ARG_NULL_POINTER_ERR;
     }
     *size = stack->size;
-    return EXIT_SUCCESS;
+    return STACK_SUCCESS;
 }
 
-void clear(Stack* stack) {
+StackStatus clear(Stack* stack) {
     if(stack == NULL) {
         fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
-        return;
+        return STACK_NULL_POINTER_ERR;
     }
     free(stack->data);
     free(stack);
+    return STACK_SUCCESS;
 }
 
-int empty(Stack* stack) {
+StackStatus empty(Stack* stack, int* out) {
     if(stack == NULL) {
         fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
-        return -1;
+        return STACK_NULL_POINTER_ERR;
     }
-    return (stack->size == 0);
+    *out = (stack->size == 0);
+    return STACK_SUCCESS;
 }
