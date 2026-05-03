@@ -1,3 +1,6 @@
+#ifndef STACK_H
+#define STACK_H
+
 #include <stddef.h>
 
 typedef int type;
@@ -16,3 +19,9 @@ int size(Stack* stack, size_t* size);
 void clear(Stack* stack);
 
 int empty(Stack* stack);
+
+int check_canaries(Stack* stack, int* out);
+
+int check_hash(Stack* stack, int* out);
+
+#endif
