@@ -48,4 +48,7 @@ StackStatus check_canaries(Stack* stack, int* out);
 /** O(n). Recomputes hash. Writes 1 into *out if valid, 0 if corrupted. */
 StackStatus check_hash(Stack* stack, int* out);
 
+/** Prints in stderr full stack data and params. */
+StackStatus print_dump(Stack* stack);
+
 #endif

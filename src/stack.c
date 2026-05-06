@@ -35,6 +35,29 @@ struct Stack {
     uint64_t canary_end;
 };
 
+StackStatus print_dump(Stack* stack) {
+    if(stack == NULL) {
+        fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
+        return STACK_NULL_POINTER_ERR;
+    }
+    if(stack->data == NULL) {
+        fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
+        return STACK_NULL_POINTER_ERR;
+    }
+    fprintf(stderr, "Capacity: %zu\n", stack->capacity);
+    fprintf(stderr, "Size: %zu\n", stack->size);
+    fprintf(stderr, "Error: %u\n", stack->error);
+    fprintf(stderr, "Canary: %llu\n", stack->canary);
+    fprintf(stderr, "Hash: %llu\n", stack->hash);
+    fprintf(stderr, "Base: %llu\n", stack->base);
+    fprintf(stderr, "Inverted base: %llu\n", stack->inv_base);
+    fprintf(stderr, "Stack:\n");
+    for(size_t i = 0; i < stack->size; i++) {
+        fprintf(stderr, "%d\n", stack->data[i]);
+    }
+    return STACK_SUCCESS;
+}
+
 StackStatus stack_get_error(Stack* stack, uint32_t* error) {
     if(stack == NULL) {
         fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
@@ -44,7 +67,7 @@ StackStatus stack_get_error(Stack* stack, uint32_t* error) {
     return STACK_SUCCESS;
 }
 
-uint64_t generate_base() {
+static uint64_t generate_base() {
     uint64_t base = 0;
     do {
         base = ((uint64_t)rand() << 33) ^ ((uint64_t)rand() << 1) ^ 1ULL;
@@ -52,7 +75,7 @@ uint64_t generate_base() {
     return base;
 }
 
-uint64_t compute_inv_base(uint64_t base) {
+static uint64_t compute_inv_base(uint64_t base) {
     uint64_t inv_base = 1;
     for(size_t i = 0; i < 6; i++) {
         inv_base *= 2-base*inv_base;
@@ -60,11 +83,11 @@ uint64_t compute_inv_base(uint64_t base) {
     return inv_base;
 }
 
-void push_update_hash(Stack* stack, type value) {
+static void push_update_hash(Stack* stack, type value) {
     stack->hash = stack->hash * stack->base + (uint64_t)value;
 }
 
-void pop_update_hash(Stack* stack, type value) {
+static void pop_update_hash(Stack* stack, type value) {
     stack->hash = (stack->hash - (uint64_t)value) * stack->inv_base;
 }
 
@@ -75,14 +98,17 @@ StackStatus check_canaries(Stack* stack, int* out) {
     }
     if(stack->canary_begin != stack->canary) {
         *out = 0;
+        print_dump(stack);
         return STACK_SUCCESS;
     }
     if(stack->canary_end != stack->canary) {
         *out = 0;
+        print_dump(stack);
         return STACK_SUCCESS;
     }
     if(stack->data[stack->capacity] != (type)stack->canary) {
         *out = 0;
+        print_dump(stack);
         return STACK_SUCCESS;
     }
     *out = 1;
@@ -98,7 +124,13 @@ StackStatus check_hash(Stack* stack, int* out) {
     for(size_t i = 0; i < stack->size; i++) {
         hash = hash * stack->base + (uint64_t)stack->data[i];
     }
-    *out = (hash == stack->hash);
+    if(hash != stack->hash) {
+        *out = 0;
+        print_dump(stack);
+    }
+    else {
+        *out = 1;
+    }
     return STACK_SUCCESS;
 }
 
@@ -131,7 +163,7 @@ Stack* init(size_t start_capacity) {
     return stack;
 }
 
-StackStatus resize(Stack* stack, double multiplier) {
+static StackStatus resize(Stack* stack, double multiplier) {
     if(stack == NULL) {
         fprintf(stderr, "%s", NULL_STACK_POINTER_ERROR);
         return STACK_NULL_POINTER_ERR;
