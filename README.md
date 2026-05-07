@@ -25,6 +25,14 @@ cd build
 ./test-stack
 ```
 
+## Build doxygen docs
+
+```bash
+mkdir build && cd build
+cmake ..
+make docs
+```
+
 ## API
 
 | Function | Description |
@@ -38,5 +46,6 @@ cd build
 | `clear(stack)` | Free all memory. |
 | `check_canaries(stack, &out)` | O(1) canaries integrity check. |
 | `check_hash(stack, &out)` | O(n) full hash integrity check. |
+| `print_dump(stack)` | Print full stack info in stderr. |
 
 The element type is `typedef int type` in `stack.h`.
